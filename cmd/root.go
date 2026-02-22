@@ -16,12 +16,14 @@ import (
 
 var (
 	cfgFile string
+	Version = "dev"
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "regman",
-	Short: "A simple Docker Registry manager",
-	Long:  "A tool for managing private Docker registries. Configurable via flags, ENV, or config file (~/.regman.yaml).",
+	Use:     "regman",
+	Short:   "A simple Docker Registry manager",
+	Long:    "A tool for managing private Docker registries. Configurable via flags, ENV, or config file (~/.regman.yaml).",
+	Version: Version,
 }
 
 func Execute() error {
