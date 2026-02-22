@@ -1,0 +1,54 @@
+---
+- name: Deploy Docker Registry Garbage Collection
+  hosts: "{{ target_hosts | default('all') }}"
+  gather_facts: false
+
+  vars:
+    registry_project_path: "/root/registry"
+    registry_storage_path: "/data/registry"
+    cron_hour: "3"
+    cron_minute: "0"
+    cron_weekday: "0"
+
+  tasks:
+    - name: Ensure registry GC script is deployed
+      ansible.builtin.copy:
+        dest: "{{ [registry_project_path, 'registry-gc.sh'] | path_join }}"
+        owner: root
+        mode: '0755'
+        content: |
+          #!/bin/bash
+          # Docker Registry Garbage Collection & Index Cleanup Script
+          set -e
+          cd "$(dirname "$0")"
+
+          echo "--- [$(date)] Phase 1: Cleaning unreferenced Blobs ---"
+          docker compose exec -T registry bin/registry garbage-collect /etc/docker/registry/config.yml
+
+          echo "--- [$(date)] Phase 2: Cleaning empty Repository Index ---"
+          REPO_BASE="{{ registry_storage_path }}/docker/registry/v2/repositories"
+
+          if [ -d "$REPO_BASE" ]; then
+              find "$REPO_BASE" -type d -name "_manifests" | while read -r m_path; do
+                  tags_path="$m_path/tags"
+                  if [ ! -d "$tags_path" ] || [ -z "$(ls -A "$tags_path" 2>/dev/null)" ]; then
+                      repo_dir=$(dirname "$m_path")
+                      echo "Removing empty repository index: $repo_dir"
+                      rm -rf "$repo_dir"
+                  fi
+              done
+              find "$REPO_BASE" -mindepth 1 -type d -empty -delete
+          else
+              echo "Warning: Repository base path $REPO_BASE not found on host."
+          fi
+          echo "--- [$(date)] Maintenance Finished ---"
+
+    - name: Register weekly garbage collection cron job
+      ansible.builtin.cron:
+        name: "Docker Registry Weekly GC"
+        minute: "{{ cron_minute }}"
+        hour: "{{ cron_hour }}"
+        weekday: "{{ cron_weekday }}"
+        user: root
+        job: "{{ [registry_project_path, 'registry-gc.sh'] | path_join }} >> {{ [registry_project_path, 'gc.log'] | path_join }} 2>&1"
+        state: present
